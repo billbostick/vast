@@ -1,0 +1,890 @@
+<?php
+// $Id$
+
+/**
+ * Implementation of hook_help()
+ */
+function vast_help($path, $arg) {
+  
+  if ($path == 'admin/help#vast') {
+    $txt = 'The Vast module uses the vast.com XML API to retrieve a list of products.';
+    return '<p>'. t($txt, $replace) .'</p>';
+  }
+}
+
+/**
+ * Implementation of hook_perm().
+ */
+function vast_perm() {
+  return array('access vast');
+}
+
+/**
+ * Implementation of hook_theme() - register our theme functions.
+ */
+function vast_theme() {
+  return array(
+    'vast_searchlist' => array(
+      'template' => 'vast_searchlist',
+      'arguments' => array('source' => NULL, 'element' => NULL, 'namespace' => NULL),
+    ),
+    'vast_details' => array(
+      'template' => 'vast_details',
+      'arguments' => array('source' => NULL, 'namespace' => NULL),
+    ),
+    'vast_listentry' => array(
+      'template' => 'vast_listentry',
+      'arguments' => array('source' => NULL, 'element' => NULL, 'namespace' => NULL, 'zebra' => NULL),
+    ),      
+    'vast_pagelinks' => array(
+      'template' => 'vast_pagelinks',
+      'arguments' => array('total_results' => NULL, 'start_index' => NULL, 'items_per_page' => NULL),
+    ),
+    'vast_sortlinks' => array(
+      'template' => 'vast_sortlinks',
+      'arguments' => array(),
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function vast_menu() {
+  $items = array();
+  $items[variable_get('vast_searchurl', 'vast')] = array(
+    'title' => 'Vast Product Search',
+    'page callback' => 'vast_page',
+    'access arguments' => array('access vast'),
+  );
+  $nextpagepath = variable_get('vast_searchurl', 'vast') . '/nextpage';
+  $items[$nextpagepath] = array(
+    'title' => 'Vast Product Search',
+    'page callback' => 'vast_page',
+    'access arguments' => array('access vast'),
+    'type' => MENU_CALLBACK,
+  );
+  $prevpagepath = variable_get('vast_searchurl', 'vast') . '/prevpage';
+  $items[$prevpagepath] = array(
+    'title' => 'Vast Product Search',
+    'page callback' => 'vast_page',
+    'access arguments' => array('access vast'),
+    'type' => MENU_CALLBACK,
+  );
+  $firstpagepath = variable_get('vast_searchurl', 'vast') . '/firstpage';
+  $items[$firstpagepath] = array(
+    'title' => 'Vast Product Search',
+    'page callback' => 'vast_page',
+    'access arguments' => array('access vast'),
+    'type' => MENU_CALLBACK,
+  );
+  $lastpagepath = variable_get('vast_searchurl', 'vast') . '/lastpage';
+  $items[$lastpagepath] = array(
+    'title' => 'Vast Product Search',
+    'page callback' => 'vast_page',
+    'access arguments' => array('access vast'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['vast/sortbyprice'] = array(
+    'title' => 'Vast Product Search',
+    'page callback' => 'vast_page',
+    'access arguments' => array('access vast'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['vast/sortbymileage'] = array(
+    'title' => 'Vast Product Search',
+    'page callback' => 'vast_page',
+    'access arguments' => array('access vast'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['vast/sortbydistance'] = array(
+    'title' => 'Vast Product Search',
+    'page callback' => 'vast_page',
+    'access arguments' => array('access vast'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['vast/sortbyrelevance'] = array(
+    'title' => 'Vast Product Search',
+    'page callback' => 'vast_page',
+    'access arguments' => array('access vast'),
+    'type' => MENU_CALLBACK,
+  );
+  $items[variable_get('vast_detailurl', 'vastdetail')] = array(
+    'title' => 'Vast Details Page',
+    'page callback' => 'vast_detail_page',
+    'access arguments' => array('access vast'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/settings/vast'] = array(
+    'title' => 'Vast settings',
+    'description' => 'Change how Vast behaves.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('vast_admin_settings'),
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['vastdebug'] = array(
+    'title' => 'Vast Debug Page',
+    'page callback' => 'vast_debug_page',
+    'access arguments' => array('access vast'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['vastmakeahah'] = array(
+    'page callback' => 'vast_makejs',
+    'access arguments' => array('access vast'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_admin_settings().
+ */
+function vast_admin_settings() {
+  $form['vast_apikey'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Vast API Key',
+    '#description' => 'Enter your Vast API Key',
+    '#default_value' => variable_get('vast_apikey', ''),
+  );
+  $form['vast_productline'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Vast Product Category',
+    '#description' => 'Enter the root Vast Product Category',
+    '#default_value' => variable_get('vast_productline', ''),
+  );
+  $form['vast_site_keywords'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Vast Site Keyword',
+    '#description' => 'Keyword(s) to be added to all searches',
+    '#default_value' => variable_get('vast_site_keywords', ''),
+  );
+  $form['vast_debug_mode'] = array(
+    '#type' => 'checkbox',
+    '#title' => 'Vast Debug Mode',
+    '#description' => 'Enable to display Debug Messages',
+    '#default_value' => variable_get('vast_debug_mode', ''),
+  );
+  $form['vast_devel_mode'] = array(
+    '#type' => 'checkbox',
+    '#title' => 'Vast Devel Mode',
+    '#description' => 'Enable to display Devel Structures (requires devel module)',
+    '#default_value' => variable_get('vast_devel_mode', ''),
+  );
+  $form['vast_searchurl'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Vast Search Page URL',
+    '#description' => 'Enter the Vast Search Page URL',
+    '#default_value' => variable_get('vast_searchurl', 'vast'),
+  );
+  $form['vast_detailurl'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Vast Detail Page URL',
+    '#description' => 'Enter the Vast Detail Page URL',
+    '#default_value' => variable_get('vast_detailurl', 'vastdetail'),
+  );
+  return system_settings_form($form);
+}
+
+/**
+ * vast_search_form - a sidebar form to query the database
+ */
+function vast_search_form($form_state) {
+  $form = array();
+
+  $form['location'] = array(
+    '#title' => t('Your Location'),
+    '#type' => 'textfield',
+    '#size' => 22,
+    '#description' => t('like <strong>92626</strong> or <strong>san diego</strong>'),
+    '#default_value' => implode( " ", explode("_", $_SESSION['vast']['location'])),
+  );
+
+  $form['make_and_model'] = array(
+    '#type' => 'markup',
+    '#value' => '<div class="make-and-model">',
+  );
+
+  $form['make_options'] = array(
+    '#type' => 'value',
+    '#value' => vast_query_get_makes(),
+  );
+
+  $form['make'] = array(
+    '#title' => t('Make'),
+    '#type' => 'select',
+    '#options' => $form['make_options']['#value'],
+    '#default_value' => array_search($_SESSION['vast']['make'], $form['make_options']['#value']),
+    '#ahah' => array(
+      'path' => 'vastmakeahah',
+      'wrapper' => 'wrap-model',
+      'method' => 'replace',
+    ),
+  );
+
+  $model_options = array();
+
+    if ($form_state['values']['make'] != 0) {
+      $make_arg = $form_state['values']['make_options'][$form_state['values']['make']];
+    } else {
+      $make_arg = $_SESSION['vast']['make'];
+    }
+    $model_options = vast_query_get_models($make_arg);
+
+  $form['model_options'] = array(
+    '#type' => 'value',
+    '#value' => $model_options,
+  );
+  $form['model_wrapper'] = array(
+    '#prefix' => '<div id="model-wrapper">',
+    '#suffix' => '</div>',
+  );
+  $form['model_wrapper']['model'] = array(
+    '#prefix' => '<div id="wrap-model">',
+    '#suffix' => '</div>',
+    '#title' => t('Model'),
+    '#type' => 'select',
+    '#options' => $form['model_options']['#value'],
+    '#default_value' => array_search($_SESSION['vast']['model'], $form['model_options']['#value']),
+  );
+  $form['end_make_and_model'] = array(
+    '#type' => 'markup',
+    '#value' => '</div>',
+  );
+  if ($form_state['values']['model_wrapper']['model'] != 0) {
+    $model_arg = $form_state['values']['model_wrapper']['model_options'][$form_state['values']['model_wrapper']['model']];
+  } else {
+    $model_arg = $_SESSION['vast']['model'];
+  }
+  $form['extras_wrapper'] = array(
+    '#prefix' => '<div id="extras-wrapper">',
+    '#suffix' => '</div>',
+  );
+  $form['extras_wrapper']['bodystyle_options'] = array(
+    '#type' => 'value',
+    '#value' => vast_query_get_bodystyles(),
+  );
+  $form['extras_wrapper']['bodystyle'] = array(
+    '#title' => t('Body Style'),
+    '#type' => 'select',
+    '#options' => $form['extras_wrapper']['bodystyle_options']['#value'],
+    '#default_value' => array_search($_SESSION['vast']['bodystyle'], $form['extras_wrapper']['bodystyle_options']['#value']),
+  );
+  $form['extras_wrapper']['price_options'] = array(
+    '#type' => 'value',
+    '#value' => vast_query_get_prices(),
+  );
+  $form['extras_wrapper']['price'] = array(
+    '#title' => t('Price'),
+    '#type' => 'select',
+    '#options' => $form['extras_wrapper']['price_options']['#value'],
+    '#default_value' => array_search($_SESSION['vast']['price'], $form['extras_wrapper']['price_options']['#value']),
+  );
+  $form['keywords'] = array(
+    '#title' => t('Keywords'),
+    '#type' => 'textfield',
+    '#size' => 22,
+    '#description' => t('like <strong>hybrid</strong> or <strong>air bags</strong> or <strong>yellow convertible</strong>'),
+    '#default_value' => implode( " ", explode("_", $_SESSION['vast']['keywords'])),
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit')
+  );
+  return $form;
+}
+
+/**
+ * vast_search_form_submit - submit handler for vast_search_form
+ */
+function vast_search_form_submit($form, &$form_state) {
+
+  $keywords = implode( "_", explode(" ", $form_state['values']['keywords']));
+  $location = implode( "-", explode(" ", $form_state['values']['location']));
+  $make_key = $form_state['values']['make'];
+  $make = $form_state['values']['make_options'][$make_key];
+  $model_key = $form_state['values']['model'];
+  $model = $form_state['values']['model_options'][$model_key];
+  $bodystyle_key = $form_state['values']['bodystyle'];
+  $bodystyle = $form_state['values']['bodystyle_options'][$bodystyle_key];
+  $price_key = $form_state['values']['price'];
+  $price = $form_state['values']['price_options'][$price_key];
+  $redir_url = 'vast';
+  if ($keywords) {
+    $redir_url .= '/q=' . $keywords;
+    $_SESSION['vast']['keywords'] = $keywords;
+  } else {
+    unset($_SESSION['vast']['keywords']);
+  }
+  if ($location) {
+    $redir_url .= '/tlocation=' . $location;
+    $_SESSION['vast']['location'] = $location;
+  } else {
+    unset($_SESSION['vast']['location']);
+  }
+  if ($make_key > 0) {
+    $redir_url .= '/make=' . $make;
+    $_SESSION['vast']['make'] = $make;
+  } else {
+    unset($_SESSION['vast']['make']);
+  }
+  if ($model_key > 0) {
+    $redir_url .= '/model=' . $model;
+    $_SESSION['vast']['model'] = $model;
+  } else {
+    unset($_SESSION['vast']['model']);
+  }
+  if ($bodystyle_key > 0) {
+    $redir_url .= '/body-style=' . $bodystyle;
+    $_SESSION['vast']['bodystyle'] = $bodystyle;
+  } else {
+    unset($_SESSION['vast']['bodystyle']);
+  }
+  if ($price_key > 0) {
+    $filtered_price = str_replace(array("$", " ", ","), "", $price);
+    $filtered_price = str_replace("+", "-max", $price);
+    $redir_url .= '/price=' . $filtered_price;
+    $_SESSION['vast']['price'] = $price;
+  } else {
+    unset($_SESSION['vast']['price']);
+  }
+  unset($_SESSION['vast']['sort']);
+  unset($_SESSION['vast']['startindex']);
+  $form_state['redirect'] = variable_get('vast_searchurl', 'vast');
+}
+
+/**
+ * vast_makejs - AHAH callback for the make field of the search block
+ */
+function vast_makejs() {
+  $form_state = array('storage' => NULL, 'submitted' => FALSE);
+  $form_build_id = $_POST['form_build_id'];
+  $form = form_get_cache($form_build_id, $form_state);
+  $args = $form['#parameters'];
+  $form_id = array_shift($args);
+  $form['#redirect'] = FALSE;
+  $form['#post'] = $_POST;
+  $form['#programmed'] = FALSE;
+  $form_state['post'] = $_POST;
+  drupal_process_form($form_id, $form, $form_state);
+  $form = drupal_rebuild_form($form_id, $form_state, $args, $form_build_id);
+  // Render the new output.
+  $choice_form = $form['model_wrapper'];
+  unset($choice_form['#prefix'], $choice_form['#suffix']); // Prevent duplicate wrappers.
+  $output = theme('status_messages') . drupal_render($choice_form);
+  unset($_SESSION['vast']['model']);
+  drupal_json(array('status' => TRUE, 'data' => $output));
+}
+
+/**
+ * implementation of hook_block
+ */
+function vast_block($op='list',$delta=0,$edit=array()) { 
+  $block = array();
+  if($op == 'list') {
+    $block['0']  = array(
+      'info' => t('Vast Search'),
+      'weight' => 1, 
+      'status' => 1, 
+      'region' => 'right'   
+    );
+    return $block;
+  } else if($op == 'view') {            
+    switch ($delta) {
+    case 0:
+      $block['subject'] = t('Search For Cars'); 
+      $block['content'] =  drupal_get_form('vast_search_form');
+      return $block;
+      break;
+    }
+  }
+}
+
+/**
+ * vast_query_get_makes
+ */
+function vast_query_get_makes() {
+  if (isset($_SESSION['vast']['lastmakequery']['results'])) {
+    // read makes from cache
+    return $_SESSION['vast']['lastmakequery']['results'];
+  } else {
+    // read makes using vast query
+    $_SESSION['vast']['lastmakequery']['results'] = vast_getattributes_makes();
+    return $_SESSION['vast']['lastmakequery']['results'];
+  }
+}
+
+/**
+ * vast_getattributes_makes
+ */
+function vast_getattributes_makes() {
+  $url = 'http://data.vast.com/attributes/-/' . variable_get('vast_productline', '') . '?apikey=' . variable_get('vast_apikey', '');
+  if (variable_get('vast_site_keywords', '')) {
+    $url . '&q=' . variable_get('vast_site_keywords', '');
+  }
+  $doc = new DOMDocument();
+  _vast_query($doc, $url);
+
+  $feed_array = array();
+  $feed_tag= $doc->getElementsByTagName("feed");
+  $item_tag='entry';
+  foreach($feed_tag as $feed_dom) {
+    $feed_array = _DOM_to_array($feed_dom);
+  }
+  $makes = array();
+  $attributes_count = count($feed_array['entry']);
+  for ($i = 0; $i < $attributes_count; $i++) {
+    if ($feed_array['entry'][$i]['title']['#text'] == 'Make') {
+      $make_count = count($feed_array['entry'][$i]['v:attribute']['v:value']);
+      for ($j = 0; $j < $make_count; $j++) {
+        $makes[] = $feed_array['entry'][$i]['v:attribute']['v:value'][$j]['#text'];
+      }  
+    }
+  }  
+  sort($makes);
+  $complete_array = array();
+  $complete_array[] = 'All Makes';
+  $complete_array += $makes;
+  return $complete_array;
+}
+
+/**
+ * vast_query_get_models
+ */
+function vast_query_get_models($make = '') {
+  if (isset($_SESSION['vast']['lastmodelquery']['make'])) {
+    // if ($make == cached make)
+    if ($make == $_SESSION['vast']['lastmodelquery']['make']) {
+      // read model list from cache
+      return $_SESSION['vast']['lastmodelquery']['results'];
+    } else {
+      //read model list using vast query
+      $_SESSION['vast']['lastmodelquery']['results'] = vast_getattributes_models($make);
+      $_SESSION['vast']['lastmodelquery']['make'] = $make;
+      return $_SESSION['vast']['lastmodelquery']['results'];
+    }
+  } else {
+    //read model list using vast query
+    $_SESSION['vast']['lastmodelquery']['results'] = vast_getattributes_models($make);
+    $_SESSION['vast']['lastmodelquery']['make'] = $make;
+    return $_SESSION['vast']['lastmodelquery']['results'];
+  }
+}
+
+/**
+ * vast_getattributes_models
+ */
+function vast_getattributes_models($make = '') {
+  $url = 'http://data.vast.com/attributes/-/' . variable_get('vast_productline', '') . '?apikey=' . variable_get('vast_apikey', '');
+  if ($make) {
+    $url .= '?make=' . $make;
+  }
+  if (variable_get('vast_site_keywords', '')) {
+    $url . '&q=' . variable_get('vast_site_keywords', '');
+  }
+  
+  $doc = new DOMDocument();
+  _vast_query($doc, $url);
+
+  $feed_array = array();
+  $feed_tag= $doc->getElementsByTagName("feed");
+  $item_tag='entry';
+  foreach($feed_tag as $feed_dom) {
+    $feed_array = _DOM_to_array($feed_dom);
+  }
+  $models = array();
+  $attributes_count = count($feed_array['entry']);
+  for ($i = 0; $i < $attributes_count; $i++) {
+    if ($feed_array['entry'][$i]['title']['#text'] == 'SAMPLE - Model') {
+      $model_count = count($feed_array['entry'][$i]['v:attribute']['v:value']);
+      for ($j = 0; $j < $model_count; $j++) {
+        $models[] = $feed_array['entry'][$i]['v:attribute']['v:value'][$j]['#text'];
+      }  
+    }
+  }  
+  sort($models);
+  $complete_array = array();
+  $complete_array[] = 'All Models';
+  $complete_array += $models;
+  return $complete_array;
+}
+
+/**
+ * vast_query_get_bodystyles
+ */
+function vast_query_get_bodystyles($make = '', $model = '') {
+  if (isset($_SESSION['vast']['lastbodystylequery']['model']) && isset($_SESSION['vast']['lastbodystylequery']['make'])) {
+    if (($model == $_SESSION['vast']['lastbodystylequery']['model']) && ($make == $_SESSION['vast']['lastbodystylequery']['make'])) {
+      return $_SESSION['vast']['lastbodystylequery']['results'];
+    } else {
+      $_SESSION['vast']['lastbodystylequery']['results'] = vast_getattributes_bodystyles($make, $model);
+      $_SESSION['vast']['lastbodystylequery']['make'] = $make;
+      $_SESSION['vast']['lastbodystylequery']['model'] = $model;
+      return $_SESSION['vast']['lastbodystylequery']['results'];
+    }
+  } else {
+    $_SESSION['vast']['lastbodystylequery']['results'] = vast_getattributes_bodystyles($make, $model);
+    $_SESSION['vast']['lastbodystylequery']['make'] = $make;
+    $_SESSION['vast']['lastbodystylequery']['model'] = $model;
+    return $_SESSION['vast']['lastbodystylequery']['results'];
+  }
+}
+
+/**
+ * vast_getattributes_bodystyles
+ */
+function vast_getattributes_bodystyles($make = '', $model = '') {
+  $url = 'http://data.vast.com/attributes/-/' . variable_get('vast_productline', '') . '?apikey=' . variable_get('vast_apikey', '');
+  if ($make != '') {
+    $url .= '?make=' . $make;
+  }
+  if ($model != '') {
+    $url .= '?model=' . $model;
+  }
+  if (variable_get('vast_site_keywords', '')) {
+    $url . '&q=' . variable_get('vast_site_keywords', '');
+  }
+  $doc = new DOMDocument();
+  _vast_query($doc, $url);
+
+  $feed_array = array();
+  $feed_tag= $doc->getElementsByTagName("feed");
+  $item_tag='entry';
+  foreach($feed_tag as $feed_dom) {
+    $feed_array = _DOM_to_array($feed_dom);
+  }
+  $styles = array();
+  $attributes_count = count($feed_array['entry']);
+  for ($i = 0; $i < $attributes_count; $i++) {
+    if (($feed_array['entry'][$i]['title']['#text'] == 'Body Style') || ($feed_array['entry'][$i]['title']['#text'] == 'SAMPLE - Body Style')) {
+      $style_count = count($feed_array['entry'][$i]['v:attribute']['v:value']);
+      for ($j = 0; $j < $style_count; $j++) {
+        $styles[] = $feed_array['entry'][$i]['v:attribute']['v:value'][$j]['#text'];
+      }  
+    }
+  }  
+  sort($styles);
+  $complete_array = array();
+  $complete_array[] = 'All Styles';
+  $complete_array += $styles;
+  return $complete_array;
+}
+
+/**
+ * vast_query_get_prices
+ */
+function vast_query_get_prices($make = '', $model = '') {
+  if (isset($_SESSION['vast']['lastpricequery']['results'])) {
+    // read prices from cache
+    return $_SESSION['vast']['lastpricequery']['results'];
+  } else {
+    // read prices using vast query
+    $_SESSION['vast']['lastpricequery']['results'] = vast_getattributes_prices($make, $model);
+    return $_SESSION['vast']['lastpricequery']['results'];
+  }
+}
+
+/**
+ * vast_getattributes_prices
+ */
+function vast_getattributes_prices($make = '', $model = '') {
+  $url = 'http://data.vast.com/attributes/-/' . variable_get('vast_productline', '') . '?apikey=' . variable_get('vast_apikey', '');
+  if ($make != '') {
+    $url .= '?make=' . $make;
+  }
+  if ($model != '') {
+    $url .= '?model=' . $model;
+  }
+  if (variable_get('vast_site_keywords', '')) {
+    $url . '&q=' . variable_get('vast_site_keywords', '');
+  }
+  $doc = new DOMDocument();
+  _vast_query($doc, $url);
+
+  $feed_array = array();
+  $feed_tag= $doc->getElementsByTagName("feed");
+  $item_tag='entry';
+  foreach($feed_tag as $feed_dom) {
+    $feed_array = _DOM_to_array($feed_dom);
+  }
+  $prices = array();
+  $attributes_count = count($feed_array['entry']);
+  for ($i = 0; $i < $attributes_count; $i++) {
+    if ($feed_array['entry'][$i]['title']['#text'] == 'Price') {
+      $price_count = count($feed_array['entry'][$i]['v:attribute']['v:value']);
+      for ($j = 0; $j < $price_count; $j++) {
+        $prices[] = $feed_array['entry'][$i]['v:attribute']['v:value'][$j]['#text'];
+      }  
+    }
+  }  
+  $complete_array = array();
+  $complete_array[] = 'All Prices';
+  $complete_array += $prices;
+  return $complete_array;
+}
+
+/**
+ * vast_debug_form - a form for testing vast XML queries
+ */
+function vast_debug_form() {
+  $items = array();
+  $items['url'] = array(
+    '#title' => t('Feed URL'),
+    '#type' => 'textfield',
+    '#size' => 100,
+    '#description' => 'like http://data.vast.com/attributes/-/' . variable_get('vast_productline', '') . '?apikey=' . variable_get('vast_apikey', ''),
+    '#default_value' => $_SESSION['vast']['debugurl'],
+  );
+  $items['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Submit')
+  );  
+  return $items;
+}
+
+/**
+ * vast_debug_form_validate - validation handler for vast_debug_form
+ */
+function vast_debug_form_validate($form, &$form_state) {
+  $_SESSION['vast']['debugurl'] = $form_state['values']['url'];
+}
+
+/**
+ * vast_debug_page - a placholder for the vast_debug_form
+ */
+function vast_debug_page() {
+  drupal_add_css(drupal_get_path("module", 'vast').'/vast.css', 'module'); 
+  $out .= 'This is the debug page';
+  $out .= drupal_get_form('vast_debug_form');
+  if ($_SESSION['vast']['debugurl']) {
+    $out .= vast_debug_query($_SESSION['vast']['debugurl']);
+  }
+  return $out;
+}
+
+/**
+ * vast_debug_query - issue vast XML query for vast_debug_page
+ */
+function vast_debug_query($url) {
+  include(drupal_get_path("module", 'vast') . '/geshi.php');
+  $path = drupal_get_path("module", 'vast') . '/geshi/';
+  $language = 'xml';
+  $http_result = drupal_http_request($url);
+  $geshi = new GeSHi($http_result->data, $language, $path);
+  $out .= $geshi->parse_code();
+  return $out;
+}
+
+
+
+function _parse_vast_args($argvalue = NULL) {
+  if ($argvalue) {
+    switch (arg(1)) {
+    case 'nextpage':
+      if ($startindex = $_SESSION['vast']['startindex']) {
+        $startindex += 10;
+      } else {
+        $startindex = 11;
+      }
+      $_SESSION['vast']['startindex'] = $startindex;
+      drupal_goto(variable_get('vast_searchurl', 'vast'));
+      break;
+    case 'prevpage':  
+      if ($startindex = $_SESSION['vast']['startindex']) {
+        $startindex -= 10;
+      } else {
+        $startindex = 1;
+      }
+      $_SESSION['vast']['startindex'] = $startindex;
+      drupal_goto(variable_get('vast_searchurl', 'vast'));
+      break;
+    case 'firstpage':  
+      $startindex = 1;
+      $_SESSION['vast']['startindex'] = $startindex;
+      drupal_goto(variable_get('vast_searchurl', 'vast'));
+      break;
+    case 'lastpage':  
+      $startindex = 991;
+      $_SESSION['vast']['startindex'] = $startindex;
+      drupal_goto(variable_get('vast_searchurl', 'vast'));
+      break;
+    case 'sortbyrelevance':
+      unset ($_SESSION['vast']['sort']);
+      drupal_goto(variable_get('vast_searchurl', 'vast'));
+      break;
+    case 'sortbyprice':
+      $_SESSION['vast']['sort'] = 1;
+      drupal_goto(variable_get('vast_searchurl', 'vast'));
+      break;
+    case 'sortbymileage':
+      $_SESSION['vast']['sort'] = 5;
+      drupal_goto(variable_get('vast_searchurl', 'vast'));
+      break;
+    case 'sortbydistance':
+      $_SESSION['vast']['sort'] = 3;
+      drupal_goto(variable_get('vast_searchurl', 'vast'));
+      break;
+    }
+	}
+}
+
+/**
+ * vast_page - the search results listing page
+ */
+function vast_page() {
+
+  _parse_vast_args(arg(1));
+
+  drupal_add_css(drupal_get_path("module", 'vast').'/vast.css', 'module'); 
+  $url = 'http://data.vast.com/listings/-/' . variable_get('vast_productline', '') . '?apikey=' . variable_get('vast_apikey', '');
+
+  if ($keywords = $_SESSION['vast']['keywords']) {
+    $url .= '&q=' . $keywords;
+    if (variable_get('vast_site_keywords', '')) {
+      $url .= '+' . variable_get('vast_site_keywords', '');
+    }
+  } else {
+    if (variable_get('vast_site_keywords', '')) {
+      $url .= '&q=' . variable_get('vast_site_keywords', '');
+    }
+  }
+  if ($location = $_SESSION['vast']['location']) {
+    $url .= '&tlocation=' . $location;
+  }
+  if ($make = $_SESSION['vast']['make']) {
+    $url .= '&make=' . $make;
+  }
+  if ($model = $_SESSION['vast']['model']) {
+    $parsedmodel = implode("+",explode(" ", $model));
+    $url .= '&model=' . $parsedmodel;
+  }
+  if ($bodystyle = $_SESSION['vast']['bodystyle']) {
+    $url .= '&body-style=' . $bodystyle;
+  }
+  if ($price = $_SESSION['vast']['price']) {
+    $filtered_price = str_replace(array("$", " ", ","), "", $price);
+    $filtered_price = str_replace("+", "-max", $price);
+    $url .= '&price=' . str_replace(array("$", " ", ","), "", $filtered_price);
+  }
+  if ($startindex = $_SESSION['vast']['startindex']) {
+    $url .= '&start-index=' . $startindex;
+  }
+  if ($sort = $_SESSION['vast']['sort']) {
+    $url .= '&sort=' . $sort;
+  }
+
+  $http_result = drupal_http_request($url);
+  $source = simplexml_load_string($http_result->data);
+  $element = new SimpleXMLElement($http_result->data);
+  $namespace = array();
+  $namespace['v'] = $element->children("http://data.vast.com/ns/listings");
+  $namespace['o'] = $element->children("http://a9.com/-/spec/opensearchrss/1.0/");
+  $namespace['entry'] = array();
+
+  if (variable_get('vast_debug_mode', '')) {
+    drupal_set_message($url);
+  }
+  if (variable_get('vast_devel_mode', '')) {
+    drupal_set_message(dpm($source));
+    drupal_set_message(dpm($namespace));
+  }
+
+  $out .= theme('vast_searchlist', $source, $element, $namespace);
+  return $out;
+}
+
+
+
+/**
+ * _vast_query
+ */
+function _vast_query($doc, $url, $num_items=10) {
+  $http_result = drupal_http_request($url);
+  if ($http_result->code == 200) {
+    try {
+      $doc->loadXML($http_result->data);
+    } catch (DOMException $e) {
+      $msg = "Error parsing XML for %url: %msg.";
+      $vars = array('%url'=>$url, '%msg'=>$e->getMessage());
+      watchdog('vast', $msg, $vars, WATCHDOG_WARNING);
+      return t("Getting the feed data resulted in an error."); 
+    }
+  } else {
+    $msg = 'No content from %url.';
+    $vars = array( '%url' => $url );
+    watchdog('vast', $msg, $vars, WATCHDOG_WARNING);
+    return t("The feed is not accessible.");
+  }
+}
+
+/**
+ * vast_detail_page - the full detail page for a single vehicle
+ */
+function vast_detail_page() {
+  if ($id = arg(1)) {
+    $id = arg(1);
+    drupal_add_css(drupal_get_path("module", 'vast').'/vast.css', 'module'); 
+    $url = 'http://data.vast.com/listings/'.$id.'/-/' . variable_get('vast_productline', '') . '?apikey=' . variable_get('vast_apikey', '');
+
+    $http_result = drupal_http_request($url);
+    $source = simplexml_load_string($http_result->data);
+    $element = new SimpleXMLElement($http_result->data);
+    $namespace = $element->children("http://data.vast.com/ns/listings");
+
+    if (variable_get('vast_debug_mode', '')) {
+      drupal_set_message($url);
+    }
+    if (variable_get('vast_devel_mode', '')) {
+      drupal_set_message(dpm($source));
+      drupal_set_message(dpm($namespace));
+    }
+    $out .= theme('vast_details', $source, $namespace);
+    return $out;
+	} else {
+	  drupal_goto('vast');
+	}
+}
+
+/**
+ * _DOM_to_array
+ */
+function _DOM_to_array($node, $rec_call = false) {
+  // if the node has children iterate through them and call the parse fuction on the children.
+  $l =$node->childNodes->length;
+  if ($node->hasChildNodes()) {
+    $l =$node->childNodes->length;
+    for ($i=0; $i<$l ;$i++)  {
+      $c_node = $node->childNodes->item($i);
+      $r[$c_node->nodeName][] = _DOM_to_array($node->childNodes->item($i),true);
+    }
+    foreach ($r as $key => $value) {
+      if(is_array($value) && sizeof($value) == 1) {
+        $r[$key] = $value[0];
+      }
+      else{
+        foreach ($value as $item_index=>$item) {
+
+          if (is_array($item) && sizeof($item) ==1 && array_key_exists('#text',$item)) {
+            $r[$key][$item_index] = $item['#text'];
+          }
+        }
+      }
+    }
+    // if the array hasmore then one element remove the #text element (this tend to be added with wierd amounts of spaces
+    if (sizeof($r)>1) {
+      $r = array_diff_key($r,array('#text'=>1));
+    }
+    // if the node has attributes add them to the array with a @ prefix
+    if ($node->hasAttributes()) {
+      foreach ($node->attributes as $attrNode) {
+       $r['@' . $attrNode->name] = $attrNode->value;
+      }
+    }
+  }
+  else {
+   $r= $node->nodeValue;
+  }
+  if ($rec_call ===false) { }
+  return $r;
+}

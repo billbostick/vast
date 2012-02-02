@@ -1,0 +1,5 @@
+; $Id$
+name = "Vast 1.0a"
+description = "Displays products from Vast.com"
+core = 6.x
+php = 5.1
